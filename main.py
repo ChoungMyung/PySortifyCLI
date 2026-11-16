@@ -4,7 +4,7 @@ import shutil
 
 CONFIG_FILE = "config.json"
 RULES_FILE = "rules.json"
-LOG_DIR = "logs.txt"
+LOG_DIR = "logs"
 
 # JSON Management
 
