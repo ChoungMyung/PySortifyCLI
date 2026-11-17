@@ -1,11 +1,9 @@
 import os
-import datedata
+import datetime
 import json
 import shutil 
 
 CONFIG_FILE = "config.json"
 RULES_FILE = "rules.json"
 LOG_DIR = "logs"
-
-# JSON Management
 
