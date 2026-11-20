@@ -28,6 +28,7 @@ DEFAULT_CATEGORIES = {
 
 
 def load_categories(config_file=CONFIG_FILE):
+    """Load category rules from JSON file or create default config if missing."""
     if not os.path.exists(config_file):
         save_categories(config_file, DEFAULT_CATEGORIES)
         return {k: list(v) for k, v in DEFAULT_CATEGORIES.items()}
@@ -36,32 +37,44 @@ def load_categories(config_file=CONFIG_FILE):
             data = json.load(f)
             if isinstance(data, dict) and data:
                 return data
-    except (OSError, json.JSONDecodeError):
-        pass
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"[WARN] Invalid category config ({e}). Using defaults.")
     return {k: list(v) for k, v in DEFAULT_CATEGORIES.items()}
 
 
 def save_categories(config_file, categories):
+    """Save category extension dictionary to a JSON file."""
     try:
         with open(config_file, "w", encoding="utf-8") as f:
             json.dump(categories, f, indent=2, ensure_ascii=False)
+        return True
     except OSError as e:
         print(f"[ERROR] Could not save categories: {e}")
+        return False
+
+
+def reset_categories(config_file=CONFIG_FILE):
+    """Reset categories back to DEFAULT_CATEGORIES and persist to disk."""
+    fresh = {k: list(v) for k, v in DEFAULT_CATEGORIES.items()}
+    save_categories(config_file, fresh)
+    return fresh
 
 
 def display_menu():
+    """Display main CLI menu and return stripped user selection."""
     print("\n=== PySortifyCLI ===")
     print("1) Scan files in folder")
     print("2) Preview file sorting (dry-run)")
     print("3) Sort files now")
     print("4) Undo last sort")
-    print("5) View / Add file categories")
+    print("5) View / Manage file categories")
     print("6) Export summary report")
     print("0) Exit")
     return input("Select an option (0-6): ").strip()
 
 
 def get_valid_path(prompt):
+    """Prompt repeatedly until a valid existing directory path is provided."""
     # loop until user enters a valid folder (empty input defaults to cwd)
     while True:
         raw_path = input(prompt).strip()
@@ -73,6 +86,7 @@ def get_valid_path(prompt):
 
 
 def scan_folder(path):
+    """Return sorted list of regular non-system files in the given directory."""
     files = []
     try:
         for entry in sorted(os.listdir(path)):
@@ -90,6 +104,7 @@ def scan_folder(path):
 
 
 def classify_file(filename, categories):
+    """Return matching target category name or 'Others' based on extension."""
     _, ext = os.path.splitext(filename)
     ext = ext.lower()
     if not ext:
@@ -103,6 +118,7 @@ def classify_file(filename, categories):
 
 
 def dry_run(path, categories):
+    """Print planned category destinations without moving any files."""
     files = scan_folder(path)
     if not files:
         print("No files found in this directory.")
@@ -118,6 +134,7 @@ def dry_run(path, categories):
 
 
 def get_unique_destination(dest_dir, filename):
+    """Return a non-conflicting destination path using _1, _2 suffixes if needed."""
     dest_path = os.path.join(dest_dir, filename)
     if not os.path.exists(dest_path):
         return dest_path
@@ -134,25 +151,58 @@ def get_unique_destination(dest_dir, filename):
 
 
 def load_history(history_file):
+    """Load sort batch history list from JSON file safely."""
     if not os.path.exists(history_file):
         return []
     try:
         with open(history_file, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, json.JSONDecodeError):
+            data = json.load(f)
+            return data if isinstance(data, list) else []
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"[WARN] Could not read history ({e}). Starting fresh.")
         return []
 
 
 def save_history(history_file, history):
+    """Persist sort batch history list to JSON file."""
     try:
         with open(history_file, "w", encoding="utf-8") as f:
             json.dump(history, f, indent=2, ensure_ascii=False)
+        return True
     except OSError as e:
         print(f"[ERROR] Could not save history: {e}")
+        return False
+
+
+def get_sort_statistics(history):
+    """Compute session counts, total files, category counts, and top category."""
+    total_files = 0
+    category_totals = {}
+
+    for batch in history:
+        for item in batch.get("files", []):
+            total_files += 1
+            cat = item.get("category", "Others")
+            category_totals[cat] = category_totals.get(cat, 0) + 1
+
+    top_category = None
+    top_count = 0
+    if category_totals:
+        top_category, top_count = max(
+            category_totals.items(), key=lambda pair: pair[1]
+        )
+
+    return {
+        "sessions": len(history),
+        "total_files": total_files,
+        "by_category": category_totals,
+        "top_category": top_category,
+        "top_count": top_count,
+    }
 
 
 def append_sort_report(target_dir, moved_records, report_file=REPORT_FILE):
-    # count moved files per category
+    """Append per-session sorting summary lines to the text report file."""
     counts = {}
     for item in moved_records:
         cat = item["category"]
@@ -167,39 +217,46 @@ def append_sort_report(target_dir, moved_records, report_file=REPORT_FILE):
             for cat, total in sorted(counts.items()):
                 f.write(f"  - {cat}: {total}\n")
             f.write("-" * 40 + "\n")
+        return True
     except OSError as e:
         print(f"[ERROR] Could not write report: {e}")
+        return False
 
 
 def export_full_report(history_file=HISTORY_FILE, report_file=REPORT_FILE):
+    """Write overall sorting statistics and category breakdown to report_file."""
     history = load_history(history_file)
     if not history:
         print("No sorting history available to generate report.")
-        return
+        return False
 
-    total_files = 0
-    category_totals = {}
-    for batch in history:
-        for item in batch.get("files", []):
-            total_files += 1
-            cat = item["category"]
-            category_totals[cat] = category_totals.get(cat, 0) + 1
+    stats = get_sort_statistics(history)
+    total_files = stats["total_files"]
+    by_cat = stats["by_category"]
 
     try:
         with open(report_file, "w", encoding="utf-8") as f:
             f.write("=== PySortifyCLI Summary Report ===\n")
             f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Total Sort Sessions: {len(history)}\n")
-            f.write(f"Total Files Organized: {total_files}\n\n")
-            f.write("Breakdown by Category:\n")
-            for cat, count in sorted(category_totals.items()):
-                f.write(f"  * {cat:<12}: {count} file(s)\n")
+            f.write(f"Total Sort Sessions: {stats['sessions']}\n")
+            f.write(f"Total Files Organized: {total_files}\n")
+            if stats["top_category"]:
+                f.write(
+                    f"Top Category: {stats['top_category']} ({stats['top_count']} file(s))\n"
+                )
+            f.write("\nBreakdown by Category:\n")
+            for cat, count in sorted(by_cat.items()):
+                pct = (count / total_files * 100) if total_files > 0 else 0.0
+                f.write(f"  * {cat:<12}: {count:>3} file(s) ({pct:5.1f}%)\n")
         print(f"[SAVED] Summary report written to '{report_file}'.")
+        return True
     except OSError as e:
         print(f"[ERROR] Failed to export report: {e}")
+        return False
 
 
 def organize_files(path, categories, history_file=HISTORY_FILE):
+    """Move files into category folders, log history, and return moved records."""
     files = scan_folder(path)
     if not files:
         print("No files found to sort.")
@@ -209,7 +266,11 @@ def organize_files(path, categories, history_file=HISTORY_FILE):
     for filename in files:
         category = classify_file(filename, categories)
         dest_dir = os.path.join(path, category)
-        os.makedirs(dest_dir, exist_ok=True)
+        try:
+            os.makedirs(dest_dir, exist_ok=True)
+        except OSError as e:
+            print(f"  [ERROR] Cannot create folder '{category}': {e}")
+            continue
 
         src_path = os.path.join(path, filename)
         dest_path = get_unique_destination(dest_dir, filename)
@@ -248,16 +309,17 @@ def organize_files(path, categories, history_file=HISTORY_FILE):
 
 
 def undo_last_sort(history_file=HISTORY_FILE):
+    """Restore files from the most recent sort session and remove empty folders."""
     history = load_history(history_file)
     if not history:
         print("No sorting history found to undo.")
-        return
+        return 0
 
     last_batch = history.pop()
     print(f"\n--- Undoing sort from {last_batch['timestamp']} ---")
     restored = 0
 
-    for item in reversed(last_batch["files"]):
+    for item in reversed(last_batch.get("files", [])):
         current_path = item["to"]
         original_path = item["from"]
         if not os.path.exists(current_path):
@@ -267,7 +329,9 @@ def undo_last_sort(history_file=HISTORY_FILE):
         try:
             shutil.move(current_path, original_path)
             restored += 1
-            print(f"  [RESTORED] {item['category']}/{item['saved_name']} -> {item['original_name']}")
+            print(
+                f"  [RESTORED] {item['category']}/{item['saved_name']} -> {item['original_name']}"
+            )
 
             # remove empty category folder after moving file back
             cat_dir = os.path.dirname(current_path)
@@ -278,9 +342,11 @@ def undo_last_sort(history_file=HISTORY_FILE):
 
     save_history(history_file, history)
     print(f"\nRestored {restored} file(s).")
+    return restored
 
 
 def display_categories(categories):
+    """Print configured categories and extensions; return category count."""
     print("\n--- File Categories ---")
     for category, extensions in categories.items():
         print(f"  * {category:<12}: {', '.join(extensions)}")
@@ -288,20 +354,32 @@ def display_categories(categories):
 
 
 def manage_categories(categories, config_file=CONFIG_FILE):
+    """Allow adding a new extension rule or resetting defaults in config_file."""
     display_categories(categories)
-    add = input("\nAdd a new extension rule? (y/n): ").strip().lower()
-    if add != "y":
-        return
+    action = (
+        input("\nChoose action: [a] Add rule, [r] Reset defaults, [Enter] Back: ")
+        .strip()
+        .lower()
+    )
+    if action == "r":
+        updated = reset_categories(config_file)
+        categories.clear()
+        categories.update(updated)
+        print("[RESET] Categories restored to default rules.")
+        return updated
+
+    if action != "a":
+        return categories
 
     cat_name = input("Enter category name (e.g., Archives, Music): ").strip()
     if not cat_name:
         print("[ERROR] Category name cannot be empty.")
-        return
+        return categories
 
     ext = input("Enter file extension (e.g., .zip or zip): ").strip().lower()
     if not ext:
         print("[ERROR] Extension cannot be empty.")
-        return
+        return categories
     if not ext.startswith("."):
         ext = "." + ext
 
@@ -314,6 +392,7 @@ def manage_categories(categories, config_file=CONFIG_FILE):
         print(f"[SAVED] Added {ext} to '{cat_name}'.")
     else:
         print(f"[INFO] {ext} already exists in '{cat_name}'.")
+    return categories
 
 
 def main():
