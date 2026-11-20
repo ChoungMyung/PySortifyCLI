@@ -5,6 +5,7 @@ import shutil
 
 CONFIG_FILE = "categories.json"
 HISTORY_FILE = "history.json"
+REPORT_FILE = "sort_report.txt"
 
 # skip files
 SYSTEM_FILES = {
@@ -55,8 +56,9 @@ def display_menu():
     print("3) Sort files now")
     print("4) Undo last sort")
     print("5) View / Add file categories")
+    print("6) Export summary report")
     print("0) Exit")
-    return input("Select an option (0-5): ").strip()
+    return input("Select an option (0-6): ").strip()
 
 
 def get_valid_path(prompt):
@@ -149,6 +151,54 @@ def save_history(history_file, history):
         print(f"[ERROR] Could not save history: {e}")
 
 
+def append_sort_report(target_dir, moved_records, report_file=REPORT_FILE):
+    # count moved files per category
+    counts = {}
+    for item in moved_records:
+        cat = item["category"]
+        counts[cat] = counts.get(cat, 0) + 1
+
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        with open(report_file, "a", encoding="utf-8") as f:
+            f.write(f"=== Sort Session: {timestamp} ===\n")
+            f.write(f"Target Directory: {target_dir}\n")
+            f.write(f"Total Sorted: {len(moved_records)} file(s)\n")
+            for cat, total in sorted(counts.items()):
+                f.write(f"  - {cat}: {total}\n")
+            f.write("-" * 40 + "\n")
+    except OSError as e:
+        print(f"[ERROR] Could not write report: {e}")
+
+
+def export_full_report(history_file=HISTORY_FILE, report_file=REPORT_FILE):
+    history = load_history(history_file)
+    if not history:
+        print("No sorting history available to generate report.")
+        return
+
+    total_files = 0
+    category_totals = {}
+    for batch in history:
+        for item in batch.get("files", []):
+            total_files += 1
+            cat = item["category"]
+            category_totals[cat] = category_totals.get(cat, 0) + 1
+
+    try:
+        with open(report_file, "w", encoding="utf-8") as f:
+            f.write("=== PySortifyCLI Summary Report ===\n")
+            f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Total Sort Sessions: {len(history)}\n")
+            f.write(f"Total Files Organized: {total_files}\n\n")
+            f.write("Breakdown by Category:\n")
+            for cat, count in sorted(category_totals.items()):
+                f.write(f"  * {cat:<12}: {count} file(s)\n")
+        print(f"[SAVED] Summary report written to '{report_file}'.")
+    except OSError as e:
+        print(f"[ERROR] Failed to export report: {e}")
+
+
 def organize_files(path, categories, history_file=HISTORY_FILE):
     files = scan_folder(path)
     if not files:
@@ -180,7 +230,7 @@ def organize_files(path, categories, history_file=HISTORY_FILE):
         except OSError as e:
             print(f"  [ERROR] Failed to move {filename}: {e}")
 
-    # append batch record to history log
+    # append batch record to history log and report
     if moved_records:
         history = load_history(history_file)
         history.append(
@@ -191,6 +241,7 @@ def organize_files(path, categories, history_file=HISTORY_FILE):
             }
         )
         save_history(history_file, history)
+        append_sort_report(path, moved_records)
 
     print(f"\nDone! Sorted {len(moved_records)} file(s).")
     return moved_records
@@ -312,8 +363,11 @@ def main():
         elif choice == "5":
             manage_categories(categories)
 
+        elif choice == "6":
+            export_full_report()
+
         else:
-            print("[ERROR] Invalid option. Please choose 0-5.")
+            print("[ERROR] Invalid option. Please choose 0-6.")
 
 
 if __name__ == "__main__":
