@@ -1,6 +1,5 @@
 import os
-
-VERSION = "1.1.0"
+import shutil
 
 # skip files
 SYSTEM_FILES = {
@@ -23,17 +22,16 @@ DEFAULT_CATEGORIES = {
 
 
 def display_menu():
-    """Display main menu and return user choice."""
-    print(f"\n=== PySortifyCLI v{VERSION} ===")
+    print("\n=== PySortifyCLI ===")
     print("1) Scan files in folder")
-    print("2) Preview file (dry-run)")
-    print("3) View file categories")
+    print("2) Preview file sorting (dry-run)")
+    print("3) Sort files now")
+    print("4) View file categories")
     print("0) Exit")
-    return input("Select an option (0-3): ").strip()
+    return input("Select an option (0-4): ").strip()
 
 
 def get_valid_path(prompt):
-    """Prompt until a valid directory path is entered."""
     # loop until user enters a valid folder (empty input defaults to cwd)
     while True:
         raw_path = input(prompt).strip()
@@ -45,7 +43,6 @@ def get_valid_path(prompt):
 
 
 def scan_folder(path):
-    """Return sorted list of regular non-system files in path."""
     files = []
     try:
         for entry in sorted(os.listdir(path)):
@@ -63,13 +60,12 @@ def scan_folder(path):
 
 
 def classify_file(filename, categories):
-    """Return target category name based on file extension."""
     _, ext = os.path.splitext(filename)
     ext = ext.lower()
     if not ext:
         return "Others"
 
-    # match extension
+    # match extension against category rules
     for category, extensions in categories.items():
         if ext in [e.lower() for e in extensions]:
             return category
@@ -77,7 +73,6 @@ def classify_file(filename, categories):
 
 
 def dry_run(path, categories):
-    """Preview file sorting plan without moving any files."""
     files = scan_folder(path)
     if not files:
         print("No files found in this directory.")
@@ -92,8 +87,58 @@ def dry_run(path, categories):
     return plan
 
 
+def get_unique_destination(dest_dir, filename):
+    dest_path = os.path.join(dest_dir, filename)
+    if not os.path.exists(dest_path):
+        return dest_path
+
+    # append counter suffix if filename already exists
+    base, ext = os.path.splitext(filename)
+    counter = 1
+    while True:
+        new_name = f"{base}_{counter}{ext}"
+        new_path = os.path.join(dest_dir, new_name)
+        if not os.path.exists(new_path):
+            return new_path
+        counter += 1
+
+
+def organize_files(path, categories):
+    files = scan_folder(path)
+    if not files:
+        print("No files found to sort.")
+        return []
+
+    moved_records = []
+    for filename in files:
+        category = classify_file(filename, categories)
+        dest_dir = os.path.join(path, category)
+        os.makedirs(dest_dir, exist_ok=True)
+
+        src_path = os.path.join(path, filename)
+        dest_path = get_unique_destination(dest_dir, filename)
+        final_name = os.path.basename(dest_path)
+
+        try:
+            shutil.move(src_path, dest_path)
+            moved_records.append(
+                {
+                    "original_name": filename,
+                    "saved_name": final_name,
+                    "category": category,
+                    "from": src_path,
+                    "to": dest_path,
+                }
+            )
+            print(f"  [MOVED] {filename} -> {category}/{final_name}")
+        except OSError as e:
+            print(f"  [ERROR] Failed to move {filename}: {e}")
+
+    print(f"\nDone! Sorted {len(moved_records)} file(s).")
+    return moved_records
+
+
 def display_categories(categories):
-    """Print configured categories and return total count."""
     print("\n--- File Categories ---")
     for category, extensions in categories.items():
         print(f"  * {category:<12}: {', '.join(extensions)}")
@@ -128,11 +173,23 @@ def main():
             dry_run(target_dir, DEFAULT_CATEGORIES)
 
         elif choice == "3":
+            target_dir = get_valid_path(
+                "Enter folder path to sort (press Enter for current directory): "
+            )
+            plan = dry_run(target_dir, DEFAULT_CATEGORIES)
+            if plan:
+                confirm = input("\nProceed with sorting? (y/n): ").strip().lower()
+                if confirm == "y":
+                    organize_files(target_dir, DEFAULT_CATEGORIES)
+                else:
+                    print("Sorting cancelled.")
+
+        elif choice == "4":
             total = display_categories(DEFAULT_CATEGORIES)
             print(f"Total: {total} categories")
 
         else:
-            print("[ERROR] Invalid option. Please choose 0-3.")
+            print("[ERROR] Invalid option. Please choose 0-4.")
 
 
 if __name__ == "__main__":
