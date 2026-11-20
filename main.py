@@ -3,6 +3,7 @@ import json
 import os
 import shutil
 
+CONFIG_FILE = "categories.json"
 HISTORY_FILE = "history.json"
 
 # skip files
@@ -25,13 +26,35 @@ DEFAULT_CATEGORIES = {
 }
 
 
+def load_categories(config_file=CONFIG_FILE):
+    if not os.path.exists(config_file):
+        save_categories(config_file, DEFAULT_CATEGORIES)
+        return {k: list(v) for k, v in DEFAULT_CATEGORIES.items()}
+    try:
+        with open(config_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, dict) and data:
+                return data
+    except (OSError, json.JSONDecodeError):
+        pass
+    return {k: list(v) for k, v in DEFAULT_CATEGORIES.items()}
+
+
+def save_categories(config_file, categories):
+    try:
+        with open(config_file, "w", encoding="utf-8") as f:
+            json.dump(categories, f, indent=2, ensure_ascii=False)
+    except OSError as e:
+        print(f"[ERROR] Could not save categories: {e}")
+
+
 def display_menu():
     print("\n=== PySortifyCLI ===")
     print("1) Scan files in folder")
     print("2) Preview file sorting (dry-run)")
     print("3) Sort files now")
     print("4) Undo last sort")
-    print("5) View file categories")
+    print("5) View / Add file categories")
     print("0) Exit")
     return input("Select an option (0-5): ").strip()
 
@@ -121,7 +144,7 @@ def load_history(history_file):
 def save_history(history_file, history):
     try:
         with open(history_file, "w", encoding="utf-8") as f:
-            json.dump(history, f, indent=2)
+            json.dump(history, f, indent=2, ensure_ascii=False)
     except OSError as e:
         print(f"[ERROR] Could not save history: {e}")
 
@@ -213,7 +236,38 @@ def display_categories(categories):
     return len(categories)
 
 
+def manage_categories(categories, config_file=CONFIG_FILE):
+    display_categories(categories)
+    add = input("\nAdd a new extension rule? (y/n): ").strip().lower()
+    if add != "y":
+        return
+
+    cat_name = input("Enter category name (e.g., Archives, Music): ").strip()
+    if not cat_name:
+        print("[ERROR] Category name cannot be empty.")
+        return
+
+    ext = input("Enter file extension (e.g., .zip or zip): ").strip().lower()
+    if not ext:
+        print("[ERROR] Extension cannot be empty.")
+        return
+    if not ext.startswith("."):
+        ext = "." + ext
+
+    # create category list if not exists, then append unique extension
+    if cat_name not in categories:
+        categories[cat_name] = []
+    if ext not in categories[cat_name]:
+        categories[cat_name].append(ext)
+        save_categories(config_file, categories)
+        print(f"[SAVED] Added {ext} to '{cat_name}'.")
+    else:
+        print(f"[INFO] {ext} already exists in '{cat_name}'.")
+
+
 def main():
+    categories = load_categories()
+
     while True:
         choice = display_menu()
 
@@ -238,17 +292,17 @@ def main():
             target_dir = get_valid_path(
                 "Enter folder path to preview (press Enter for current directory): "
             )
-            dry_run(target_dir, DEFAULT_CATEGORIES)
+            dry_run(target_dir, categories)
 
         elif choice == "3":
             target_dir = get_valid_path(
                 "Enter folder path to sort (press Enter for current directory): "
             )
-            plan = dry_run(target_dir, DEFAULT_CATEGORIES)
+            plan = dry_run(target_dir, categories)
             if plan:
                 confirm = input("\nProceed with sorting? (y/n): ").strip().lower()
                 if confirm == "y":
-                    organize_files(target_dir, DEFAULT_CATEGORIES)
+                    organize_files(target_dir, categories)
                 else:
                     print("Sorting cancelled.")
 
@@ -256,8 +310,7 @@ def main():
             undo_last_sort()
 
         elif choice == "5":
-            total = display_categories(DEFAULT_CATEGORIES)
-            print(f"Total: {total} categories")
+            manage_categories(categories)
 
         else:
             print("[ERROR] Invalid option. Please choose 0-5.")
