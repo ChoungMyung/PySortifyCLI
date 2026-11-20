@@ -1,0 +1,39 @@
+=== PySortifyCLI ===
+1) Scan files in folder
+2) Preview file sorting (dry-run)
+3) Sort files now
+4) Undo last sort
+5) View / Manage file categories
+6) Export summary report
+0) Exit
+Select an option (0-6): 2
+Enter folder path to preview (press Enter for current directory): sample_data
+
+--- Dry-Run Preview (4 file(s)) ---
+  notes.txt                    ->  Documents/
+  photo.png                    ->  Images/
+  script.py                    ->  Code/
+  archive.zip                  ->  Others/
+
+Select an option (0-6): 3
+Enter folder path to sort (press Enter for current directory): sample_data
+
+--- Dry-Run Preview (4 file(s)) ---
+  notes.txt                    ->  Documents/
+  photo.png                    ->  Images/
+  script.py                    ->  Code/
+  archive.zip                  ->  Others/
+
+Proceed with sorting? (y/n): y
+  [MOVED] notes.txt -> Documents/notes.txt
+  [MOVED] photo.png -> Images/photo.png
+  [MOVED] script.py -> Code/script.py
+  [MOVED] archive.zip -> Others/archive.zip
+
+Done! Sorted 4 file(s).
+
+Select an option (0-6): 6
+[SAVED] Summary report written to 'sort_report.txt'.
+
+Select an option (0-6): 0
+Goodbye!
