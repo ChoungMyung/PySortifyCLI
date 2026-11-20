@@ -1,5 +1,9 @@
+from datetime import datetime
+import json
 import os
 import shutil
+
+HISTORY_FILE = "history.json"
 
 # skip files
 SYSTEM_FILES = {
@@ -26,9 +30,10 @@ def display_menu():
     print("1) Scan files in folder")
     print("2) Preview file sorting (dry-run)")
     print("3) Sort files now")
-    print("4) View file categories")
+    print("4) Undo last sort")
+    print("5) View file categories")
     print("0) Exit")
-    return input("Select an option (0-4): ").strip()
+    return input("Select an option (0-5): ").strip()
 
 
 def get_valid_path(prompt):
@@ -103,7 +108,25 @@ def get_unique_destination(dest_dir, filename):
         counter += 1
 
 
-def organize_files(path, categories):
+def load_history(history_file):
+    if not os.path.exists(history_file):
+        return []
+    try:
+        with open(history_file, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return []
+
+
+def save_history(history_file, history):
+    try:
+        with open(history_file, "w", encoding="utf-8") as f:
+            json.dump(history, f, indent=2)
+    except OSError as e:
+        print(f"[ERROR] Could not save history: {e}")
+
+
+def organize_files(path, categories, history_file=HISTORY_FILE):
     files = scan_folder(path)
     if not files:
         print("No files found to sort.")
@@ -134,8 +157,53 @@ def organize_files(path, categories):
         except OSError as e:
             print(f"  [ERROR] Failed to move {filename}: {e}")
 
+    # append batch record to history log
+    if moved_records:
+        history = load_history(history_file)
+        history.append(
+            {
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "target_dir": path,
+                "files": moved_records,
+            }
+        )
+        save_history(history_file, history)
+
     print(f"\nDone! Sorted {len(moved_records)} file(s).")
     return moved_records
+
+
+def undo_last_sort(history_file=HISTORY_FILE):
+    history = load_history(history_file)
+    if not history:
+        print("No sorting history found to undo.")
+        return
+
+    last_batch = history.pop()
+    print(f"\n--- Undoing sort from {last_batch['timestamp']} ---")
+    restored = 0
+
+    for item in reversed(last_batch["files"]):
+        current_path = item["to"]
+        original_path = item["from"]
+        if not os.path.exists(current_path):
+            print(f"  [SKIP] Missing file: {item['saved_name']}")
+            continue
+
+        try:
+            shutil.move(current_path, original_path)
+            restored += 1
+            print(f"  [RESTORED] {item['category']}/{item['saved_name']} -> {item['original_name']}")
+
+            # remove empty category folder after moving file back
+            cat_dir = os.path.dirname(current_path)
+            if os.path.isdir(cat_dir) and not os.listdir(cat_dir):
+                os.rmdir(cat_dir)
+        except OSError as e:
+            print(f"  [ERROR] Failed to restore {item['saved_name']}: {e}")
+
+    save_history(history_file, history)
+    print(f"\nRestored {restored} file(s).")
 
 
 def display_categories(categories):
@@ -185,11 +253,14 @@ def main():
                     print("Sorting cancelled.")
 
         elif choice == "4":
+            undo_last_sort()
+
+        elif choice == "5":
             total = display_categories(DEFAULT_CATEGORIES)
             print(f"Total: {total} categories")
 
         else:
-            print("[ERROR] Invalid option. Please choose 0-4.")
+            print("[ERROR] Invalid option. Please choose 0-5.")
 
 
 if __name__ == "__main__":
